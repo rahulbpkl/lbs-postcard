@@ -1,0 +1,209 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Here I Am!</title>
+<meta name="viewport" content="width=device-width; initial-scale=1.0; maximum-scale=1.0; user-scalable=0;"/>
+<script type="text/javascript" src="http://www.google.com/jsapi?key=ABQIAAAAbnvDoAoYOSW2iqoXiGTpYBTlJ8fgyfAsCHHaKAeDycSIN-HlVBQPL2QmfBm25WCgxO5AHIUmI6Jong&autoload=%7Bmodules%3A%5B%7Bname%3A%22maps%22%2Cversion%3A3%2Cother_params%3A%22sensor%3Dtrue%22%7D%5D%7D"></script>
+<script type="text/javascript">
+google.setOnLoadCallback(function() {
+	setViewport();
+	locateMap();
+});
+
+var map;
+var markers = {};
+
+function setViewport() {
+	// set map size to full screen
+	width = window.innerWidth ? window.innerWidth + 'px' : '100%';
+	height = window.innerHeight ? window.innerHeight + 'px' : '100%';
+
+	var map_div = document.getElementById('map');
+	map_div.style.width = width;
+	map_div.style.height = height;
+
+	var postcard_div = document.getElementById('postcard');
+	postcard_div.style.width = width;
+	postcard_div.style.height = height;	
+}
+
+function locateMap() {
+	// the default map location is Sydney Harbour.
+	// this will be used only if we have no geolocation success below
+	var mapOptions = {
+		center: new google.maps.LatLng(-33.858362, 151.214876),
+		zoom: 15,
+		mapTypeId: google.maps.MapTypeId.TERRAIN,
+		mapTypeControlOptions: { style: google.maps.MapTypeControlStyle.DROPDOWN_MENU }
+	};
+
+	// google loader will provide an approximate location 
+	// based on the network IP address exposed by the mobile operator gateway
+	// see http://code.google.com/apis/ajax/documentation/#ClientLocation
+	if (typeof(google.loader.ClientLocation) != 'undefined') {
+		try {
+			mapOptions.latlng = new google.maps.LatLng(google.loader.ClientLocation.latitude, google.loader.ClientLocation.longitude);
+			mapOptions.zoom = 10;
+		} catch (e) {}		
+	}
+
+	// initialize map
+	map = new google.maps.Map(document.getElementById('map'), mapOptions);
+
+	// W3C geolocation API provides an accurate location from on-device GPS if available (e.g. iPhone OS3.0+)
+	// see http://dev.w3.org/geo/api/spec-source.html
+	// note: this is an asynchronous API that returns success or failure after device &/or user response
+	if (typeof(navigator.geolocation) != 'undefined') {
+		try {
+			navigator.geolocation.getCurrentPosition(function(position) {
+				// success - geolocation authorized by user. relocate the map.
+				map.setOptions({
+					center: new google.maps.LatLng(position.coords.latitude, position.coords.longitude),
+					zoom: 15
+				});
+			}, function() {
+				// fail - geolocation denied by user. do nothing.
+			});
+		} catch (e) {}
+		
+	// Google Gears uses GPS &/or cell-tower location - see http://googlemobile.blogspot.com/2008/06/google-enables-location-aware.html
+	// and is included in most Android 1.0+ devices using Chrome Lite browser
+	} else if (typeof(google.gears) != 'undefined') {
+		try {
+			var geo = google.gears.factory.create('beta.geolocation');
+			geo.getCurrentPosition(function(position) {
+				// success - geolocation authorized by user. relocate the map.
+				map.setOptions({
+					center: new google.maps.LatLng(position.latitude, position.longitude),
+					zoom: 15
+				});
+			}, function() {
+				// fail - geolocation denied by user. do nothing.
+			});	
+		} catch (e) {}
+	}
+	
+	// listen for map becoming idle after manual panning or zooming, or after asynchronous geolocation
+	google.maps.event.addListener(map, 'idle', function() {
+		loadPhotos();
+	});
+	
+	// detect device orientation change and adjust map viewport
+	window.onresize = setViewport;
+}
+
+// load Paroramio photos within the bounds of the map
+// see http://www.panoramio.com/api/
+function loadPhotos() {
+	var url = 'http://www.panoramio.com/map/get_panoramas.php?order=popularity&set=public&from=0&to=20&size=mini_square&callback=addPhotos';
+	var bounds = map.getBounds();
+	url += '&minx=' + bounds.getSouthWest().lng().toFixed(6) + '&miny=' + bounds.getSouthWest().lat().toFixed(6);
+	url += '&maxx=' + bounds.getNorthEast().lng().toFixed(6) + '&maxy=' + bounds.getNorthEast().lat().toFixed(6);
+	url += '&ts=' + new Date().getTime(); // prevent caching
+
+	// use JSONP to retrieve photo data and trigger a callback to addPhotos()
+    var script = document.createElement("script");
+    script.setAttribute("src", url);
+    script.setAttribute("type", "text/javascript");                
+    document.body.appendChild(script);
+}
+
+// add new markers
+function addPhotos(data) {
+	var new_markers = {};
+
+	if (data.photos && data.photos.length) {
+		for (var i = 0; i < data.photos.length; i++) {
+			var photo = data.photos[i]; 
+		
+			// for speed and to reduce flicker, reuse existing markers rather than removing and re-adding
+			if (photo.photo_id in markers) {
+				new_markers[photo.photo_id] = markers[photo.photo_id];
+			
+			} else {
+				// create new marker
+				marker = new google.maps.Marker({
+					position: new google.maps.LatLng(photo.latitude, photo.longitude),
+					icon: photo.photo_file_url,
+					map: map
+				});
+
+				addClickHandler(marker, photo);
+				new_markers[photo.photo_id] = marker;
+			}
+		}
+	}
+
+	// remove old markers
+	for (var photo_id in markers) {
+		if (!(photo_id in new_markers)) {
+			markers[photo_id].setMap(null);
+			delete markers[photo_id];
+		}
+	}
+
+	markers = new_markers;
+}
+
+// reuse showPostcard() rather than defining a separate click handler for every photo
+function addClickHandler(marker, photo) {
+	google.maps.event.addListener(marker, 'click', function() {
+		showPostcard(photo);
+	});
+}
+
+// show postcard in front of map view
+function showPostcard(photo) {
+	document.getElementById('photo_url').href = photo.photo_url;
+	document.getElementById('photo_file_url').src = 'http://mw2.google.com/mw-panoramio/photos/small/' + photo.photo_id + '.jpg';
+	document.getElementById('photo_title').innerHTML = photo.photo_title;
+	document.getElementById('owner_url').href = photo.owner_url;
+	document.getElementById('owner_name').innerHTML = photo.owner_name;
+	document.getElementById('twitter_url').href = 'http://twitter.com/home?status=' + encodeURIComponent('Here I Am! ' + photo.photo_url);
+	document.getElementById('facebook_url').href = 'http://www.facebook.com/sharer.php?u=' + encodeURIComponent(photo.photo_url) + '&t=' + encodeURIComponent('Here I Am!');
+	document.getElementById('postcard').style.display = 'block';
+}
+
+// hide postcard and return to map view
+function hidePostcard() {
+	document.getElementById('postcard').style.display = 'none';
+}
+
+</script>
+<style>
+body {
+	margin: 0px;
+	font-family:Helvetica;
+	font-size:8pt;
+}
+#status {
+	background-color: #CC0000;
+	color: #FFFFFF;
+	padding: 5px;
+}
+#map {
+	position: absolute;
+}
+#postcard {
+	position: absolute;
+	background-color: #FFFFFF;
+	display: none;
+}
+#photo_title {
+	font-weight: bold;
+}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="postcard">
+	<p><img src="http://www.panoramio.com/img/logo-small.gif" width="119" height="25" /></p>
+	<p><a id="photo_url" href="http://www.panoramio.com"><img id="photo_file_url" border="0" /></a></p>
+	<p><span id="photo_title"></span></p>
+	<p><em>by <a id="owner_url" href="http://www.panoramio.com"><span id="owner_name"></span></a></em></p>
+	<p><a id="twitter_url" href="http://twitter.com" target="_blank">Share on Twitter</a></p>
+	<p><a id="facebook_url" href="http://facebook.com" target="_blank">Share on Facebook</a></p>
+	<p><a href="#" onclick="hidePostcard();return false;">Back to Map</a></p>
+	<p>Photos provided by Panoramio are under the copyright of their owners.</p>
+</div>
+</body>
+</html>
