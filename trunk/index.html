@@ -41,7 +41,7 @@ function locateMap() {
 	// see http://code.google.com/apis/ajax/documentation/#ClientLocation
 	if (typeof(google.loader.ClientLocation) != 'undefined') {
 		try {
-			mapOptions.latlng = new google.maps.LatLng(google.loader.ClientLocation.latitude, google.loader.ClientLocation.longitude);
+			mapOptions.center = new google.maps.LatLng(google.loader.ClientLocation.latitude, google.loader.ClientLocation.longitude);
 			mapOptions.zoom = 10;
 		} catch (e) {}		
 	}
